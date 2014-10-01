@@ -52,6 +52,11 @@ var iosExportOptions = [
 
 var folder = Folder.selectDialog("Select export directory");
 var document = app.activeDocument;
+var layerData = new Array();
+
+// Note: only use one character!
+var exportLayersStartingWith = "#";
+var exportLayersWithArtboardClippingStartingWith = "%";
 
 if(document && folder) {
     var dialog = new Window("dialog","Select export sizes");
@@ -92,8 +97,6 @@ function exportToFile(scaleFactor, resIdentifier, os) {
 		expFolder.create();
 	}
 
-	var layerData = new Array();
-
     // Finds all layers that should be saved and saves these to the export layers array
     collectLayerData(document, null);
 
@@ -102,11 +105,17 @@ function exportToFile(scaleFactor, resIdentifier, os) {
 	for (var i = 0; i < layerData.length; i++) {
         if ((layerData[i].tag == "include") || (layerData[i].tag == "include_and_clip")) {
  			
- 			if(os === "android")
-            	file = new File(expFolder.fsName + "/" + ab.name + ".png");
+            if(os === "android")
+            	file = new File(expFolder.fsName + "/" +layerData[i].layerName + ".png");
 	        else if(os === "ios")
-	            file = new File(expFolder.fsName + "/" + ab.name + resIdentifier + ".png");
-	            
+	            file = new File(expFolder.fsName + "/" + layerData[i].layerName + resIdentifier + ".png");
+	        
+            // Hide all layers first
+            hideAllLayers();
+            
+            // Now show all layers needed to actually display the current layer on screen
+            layerData[i].showIncludingParentAndChildLayers(); //showIncludingParents();
+
 	        var clipToArtboard = false;
 	        if (layerData[i].tag == "include_and_clip") {
 	            clipToArtboard = true;
@@ -123,6 +132,14 @@ function exportToFile(scaleFactor, resIdentifier, os) {
 		}
 	}
 };
+
+
+function hideAllLayers() {
+
+    for (var i = 0; i < layerData.length; i++) {
+        layerData[i].hide();
+    }
+}
 
 // Collects information about the various layers
 function collectLayerData(rootLayer, extendedRootLayer) {
