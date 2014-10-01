@@ -1,3 +1,4 @@
+$.level = 2; // Supposedly full debug mode  
 /**
 * Author: austynmahoney (https://github.com/austynmahoney)
 */
@@ -91,25 +92,133 @@ function exportToFile(scaleFactor, resIdentifier, os) {
 		expFolder.create();
 	}
 
-	for (i = document.artboards.length - 1; i >= 0; i--) {
-		document.artboards.setActiveArtboardIndex(i);
-		ab = document.artboards[i];
-        
-        if(os === "android")
-            file = new File(expFolder.fsName + "/" + ab.name + ".png");
-        else if(os === "ios")
-            file = new File(expFolder.fsName + "/" + ab.name + resIdentifier + ".png");
-            
-            options = new ExportOptionsPNG24();
-            options.transparency = true;
-            options.artBoardClipping = true;
-            options.antiAliasing = true;
-            options.verticalScale = scaleFactor;
-            options.horizontalScale = scaleFactor;
+	var layerData = new Array();
 
-            document.exportFile(file, ExportType.PNG24, options);
+    // Finds all layers that should be saved and saves these to the export layers array
+    collectLayerData(document, null);
+
+	var layersToExportCount = 0;
+
+	for (var i = 0; i < layerData.length; i++) {
+        if ((layerData[i].tag == "include") || (layerData[i].tag == "include_and_clip")) {
+ 			
+ 			if(os === "android")
+            	file = new File(expFolder.fsName + "/" + ab.name + ".png");
+	        else if(os === "ios")
+	            file = new File(expFolder.fsName + "/" + ab.name + resIdentifier + ".png");
+	            
+	        var clipToArtboard = false;
+	        if (layerData[i].tag == "include_and_clip") {
+	            clipToArtboard = true;
+	        }
+
+	        options = new ExportOptionsPNG24();
+	        options.transparency = true;
+	        options.artBoardClipping = clipToArtboard;
+	        options.antiAliasing = true;
+	        options.verticalScale = scaleFactor;
+	        options.horizontalScale = scaleFactor;
+
+	        document.exportFile(file, ExportType.PNG24, options);
+		}
 	}
 };
+
+// Collects information about the various layers
+function collectLayerData(rootLayer, extendedRootLayer) {
+    for (var i = 0; i < rootLayer.layers.length; i++) {
+
+        // We never even process locked or hidden layers
+        if ((!rootLayer.layers[i].locked) && (rootLayer.layers[i].visible)) {
+
+            var extendedLayer = new ExtendedLayer(rootLayer.layers[i]);
+
+            // Set up parent
+            extendedLayer.parentLayer = extendedRootLayer;
+
+            // Also add this layer to the parents child collection
+            if (extendedRootLayer != null) {
+                extendedRootLayer.childLayers.push(extendedLayer);
+            }
+
+            layerData.push(extendedLayer);
+
+            // Tag these layers so that we later can find out if we should export these layers or not
+            if (rootLayer.layers[i].name.substring(0, 1) == exportLayersStartingWith) {
+                extendedLayer.tag = "include";
+            } else if (rootLayer.layers[i].name.substring(0, 1) == exportLayersWithArtboardClippingStartingWith) {
+                extendedLayer.tag = "include_and_clip";
+            } else {
+                extendedLayer.tag = "skip";
+            }
+
+            // We should not export this layer but we continue looking for sub layers that might need to be exported
+            collectLayerData(rootLayer.layers[i], extendedLayer);
+        }
+    }
+}
+
+
+// Holds info and additional methods for layers
+function ExtendedLayer(layer) {
+    this.originalVisibility = layer.visible;
+    this.layer = layer;
+    this.tag = "";
+    this.hide = hide;
+    this.show = show;
+    this.showIncludingParentAndChildLayers = showIncludingParentAndChildLayers;
+    this.restoreVisibility = restoreVisibility;
+    this.restoreVisibilityIncludingChildLayers = restoreVisibilityIncludingChildLayers;
+    this.layerName = layer.name;
+
+    // Set after creating
+    this.childLayers = new Array();
+    this.parentLayer = null;
+
+    function hide() {
+        layer.visible = false;
+    }
+
+    function show() {
+        layer.visible = true;
+    }
+
+    // Shows this layer including it's parent layers (up to the root) and it's child layers
+    function showIncludingParentAndChildLayers() {
+
+        var parentlayerName = "";
+
+        if (this.parentLayer != null) {
+            parentlayerName = this.parentLayer.layerName;
+        }
+
+        // Show all parents first
+        var aParentLayer = this.parentLayer;
+
+        while (aParentLayer != null) {
+            aParentLayer.restoreVisibility();
+
+            // Keep looking
+            aParentLayer = aParentLayer.parentLayer;
+        }
+
+        // Show our own layer finally
+        this.restoreVisibilityIncludingChildLayers();
+    }
+
+    function restoreVisibility() {
+        layer.visible = this.originalVisibility;
+    }
+
+    function restoreVisibilityIncludingChildLayers() {
+        this.restoreVisibility();
+
+        // Call recursively for each child layer
+        for (var i = 0; i < this.childLayers.length; i++) {
+            this.childLayers[i].restoreVisibilityIncludingChildLayers();
+        }
+    }
+}
 
 function createSelectionPanel(name, array, parent) {
     var panel = parent.add("panel", undefined, name);
